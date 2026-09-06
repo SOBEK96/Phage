@@ -543,7 +543,7 @@ class PhageSentinel(gl.Contract):
         self.total_claimed_atto = u256(int(self.total_claimed_atto) + amount)
 
         # Interaction
-        _Recipient(gl.message.sender_address).emit_transfer(value=u256(amount), on="finalized")
+        _Recipient(gl.message.sender_address).emit_transfer(value=u256(amount))
 
     # ------------------------------------------------------------------
     # Internal: Non-Deterministic Pathogen Consensus Engine

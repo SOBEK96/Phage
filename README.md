@@ -3,9 +3,9 @@
 Target Track: Track 6 -- Autonomous Protocols
 Network: GenLayer StudioNet (Chain ID: 61999)
 Target Contract Path: contracts/phage_sentinel.py
-Contract Address: 0x11d5247a64f5FB606A2b66780dbbB7B680a6b586
-Deployment Tx Hash: 0xa8c1fa6c0ef60dbef7070f8bb4f7021a9ec8d20605ea1483adf2d55220dcd0dc
-Explorer URL: https://explorer-studio.genlayer.com/address/0x11d5247a64f5FB606A2b66780dbbB7B680a6b586
+Contract Address: 0xA1fb41605c3fff9d00bABC08196E3Ab14d530923
+Deployment Tx Hash: 0x33670260a625202fbb41169ea2eb0817a7fffdb95e1dab35dc41b76a9d00130c
+Explorer URL: https://explorer-studio.genlayer.com/address/0xA1fb41605c3fff9d00bABC08196E3Ab14d530923
 
 ---
 
@@ -200,15 +200,15 @@ tests/direct/test_phage_sentinel.py::test_recover_agent_unregistered_rejected PA
 - Network: GenLayer StudioNet
 - Chain ID: `61999`
 - RPC URL: `https://studio.genlayer.com/api`
-- Contract Address: `0x11d5247a64f5FB606A2b66780dbbB7B680a6b586`
-- Deployment Transaction Hash: `0xa8c1fa6c0ef60dbef7070f8bb4f7021a9ec8d20605ea1483adf2d55220dcd0dc`
-- Explorer URL: [https://explorer-studio.genlayer.com/address/0x11d5247a64f5FB606A2b66780dbbB7B680a6b586](https://explorer-studio.genlayer.com/address/0x11d5247a64f5FB606A2b66780dbbB7B680a6b586)
+- Contract Address: `0xA1fb41605c3fff9d00bABC08196E3Ab14d530923`
+- Deployment Transaction Hash: `0x33670260a625202fbb41169ea2eb0817a7fffdb95e1dab35dc41b76a9d00130c`
+- Explorer URL: [https://explorer-studio.genlayer.com/address/0xA1fb41605c3fff9d00bABC08196E3Ab14d530923](https://explorer-studio.genlayer.com/address/0xA1fb41605c3fff9d00bABC08196E3Ab14d530923)
 - Deployer Address: `0x947a25754b08d09b770a77f159b92ecc1e83d9b3`
 - Status: `ACCEPTED` (Majority Validator Quorum AGREE)
 
 ### Live RPC Verification
 ```bash
-genlayer call 0x11d5247a64f5FB606A2b66780dbbB7B680a6b586 get_registry_overview --rpc https://studio.genlayer.com/api
+genlayer call 0xA1fb41605c3fff9d00bABC08196E3Ab14d530923 get_registry_overview --rpc https://studio.genlayer.com/api
 ```
 
 Live RPC Response:
