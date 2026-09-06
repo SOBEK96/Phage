@@ -3,9 +3,9 @@
 Target Track: Track 6 -- Autonomous Protocols
 Network: GenLayer StudioNet (Chain ID: 61999)
 Target Contract Path: contracts/phage_sentinel.py
-Contract Address: 0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c
-Deployment Tx Hash: 0xc3784ed8371ed45b70aae01a53039946728049e355abd0e270575f0bb4422581
-Explorer URL: https://explorer-studio.genlayer.com/address/0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c
+Contract Address: 0x2f9c7d397734Cb7861522C1A16a17EB356c2B524
+Deployment Tx Hash: 0x838d5ca9959c16431ec120e309663682a74d57301d9fc53d2519749788f9308f
+Explorer URL: https://explorer-studio.genlayer.com/address/0x2f9c7d397734Cb7861522C1A16a17EB356c2B524
 
 ---
 
@@ -143,6 +143,11 @@ To prevent consensus divergence and floating-point rounding attacks, GenLayer va
 | Floating Point Consensus Divergence | Indivisible discrete tuple `(tier, duration, payout)` | `test_consensus_binding_tier_critical_allocates_100pct`, `test_consensus_binding_tier_suspicious_24h_zero_payout` | VERIFIED |
 | Treasury Insolvency / Vault Run | Strict double-entry accounting + CEI pull-based `withdraw()` | `test_solvency_invariant_multi_cycle`, `test_withdraw_zero_balance_rejected` | VERIFIED |
 | Premature Quarantine Bypass | Block timestamp expiration gate + time warp verification | `test_quarantine_interop_and_expiration_warp`, `test_recover_agent_unregistered_rejected` | VERIFIED |
+| Pending Replay Race Condition | Upfront `pending_digests` tracking prevents locked bond state | `test_pending_replay_race_condition_rejection` | VERIFIED |
+| Appeal Slashing & Bounty Reclaim | Dynamic `min(claimable, bond+payout)` restores bounty pool | `test_appeal_slashing_with_bounty_reclaim_and_reserve_slashing`, `test_appeal_slashing_partial_claimable_resilience` | VERIFIED |
+| Platform-Scoped Replay Scope | `_compute_digest(platform, target, trace)` isolates platform trace IDs | `test_platform_scoped_replay_allows_cross_platform_same_trace` | VERIFIED |
+| Antibody Revocation on Appeal | Upheld appeal sets `is_active = False` on antibody signature | `test_antibody_lifecycle_revocation_on_upheld_appeal` | VERIFIED |
+| String Boolean Anti-Spoofing | `_is_truthy()` parses string `"false"`/`"0"` as nominal | `test_pre_quantize_telemetry_falsy_string_evaluates_nominal`, `test_pre_quantize_telemetry_truthy_string_evaluates_critical` | VERIFIED |
 
 ---
 
@@ -155,41 +160,48 @@ Phage features a standalone, in-memory direct test suite using `genlayer-test` e
 .venv/bin/pytest tests/direct/ -v
 ```
 
-### Test Suite Results (34 / 34 Passed in 0.80s)
+### Test Suite Results (38 / 38 Passed in 1.20s)
 ```text
-tests/direct/test_phage_sentinel.py::test_initial_registry_state PASSED [ 3%]
-tests/direct/test_phage_sentinel.py::test_fund_bounty_pool_success PASSED [ 6%]
-tests/direct/test_phage_sentinel.py::test_fund_bounty_pool_zero_rejected PASSED [ 9%]
-tests/direct/test_phage_sentinel.py::test_report_pathogen_success_all_platforms PASSED [ 12%]
-tests/direct/test_phage_sentinel.py::test_report_pathogen_bond_below_minimum_rejected PASSED [ 16%]
-tests/direct/test_phage_sentinel.py::test_report_pathogen_empty_report_id_rejected PASSED [ 19%]
-tests/direct/test_phage_sentinel.py::test_report_pathogen_duplicate_report_id_rejected PASSED [ 22%]
-tests/direct/test_phage_sentinel.py::test_report_pathogen_invalid_platform_rejected PASSED [ 25%]
-tests/direct/test_phage_sentinel.py::test_fail_closed_on_http_500_transient PASSED [ 29%]
-tests/direct/test_phage_sentinel.py::test_fail_closed_on_http_429_transient PASSED [ 32%]
-tests/direct/test_phage_sentinel.py::test_fail_closed_on_empty_body_transient PASSED [ 35%]
-tests/direct/test_phage_sentinel.py::test_url_validation_rejects_full_http_url PASSED [ 38%]
-tests/direct/test_phage_sentinel.py::test_url_validation_rejects_invalid_github_format PASSED [ 41%]
-tests/direct/test_phage_sentinel.py::test_url_validation_accepts_valid_github PASSED [ 45%]
-tests/direct/test_phage_sentinel.py::test_consensus_binding_tier_critical_allocates_100pct PASSED [ 48%]
-tests/direct/test_phage_sentinel.py::test_consensus_binding_tier_suspicious_24h_zero_payout PASSED [ 51%]
-tests/direct/test_phage_sentinel.py::test_consensus_binding_tier_benign_zero_quarantine_zero_payout PASSED [ 54%]
-tests/direct/test_phage_sentinel.py::test_adversarial_slashing_fabricated_attack_slashes_bond PASSED [ 58%]
-tests/direct/test_phage_sentinel.py::test_adversarial_slashing_http_404_resolves_fabricated PASSED [ 61%]
-tests/direct/test_phage_sentinel.py::test_solvency_invariant_multi_cycle PASSED [ 64%]
-tests/direct/test_phage_sentinel.py::test_withdraw_zero_balance_rejected PASSED [ 67%]
-tests/direct/test_phage_sentinel.py::test_replay_rejection_same_incident_digest_reverts PASSED [ 70%]
-tests/direct/test_phage_sentinel.py::test_replay_protection_cross_wallet_rejection PASSED [ 74%]
-tests/direct/test_phage_sentinel.py::test_replay_rejection_different_trace_allowed PASSED [ 77%]
-tests/direct/test_phage_sentinel.py::test_appeal_quarantine_success_lifts_quarantine PASSED [ 80%]
-tests/direct/test_phage_sentinel.py::test_appeal_quarantine_failed_slashes_appeal_bond PASSED [ 83%]
-tests/direct/test_phage_sentinel.py::test_escalated_reporter_bond_after_defended_appeal PASSED [ 87%]
-tests/direct/test_phage_sentinel.py::test_bounty_farming_target_cooldown_and_pool_scaling PASSED [ 90%]
-tests/direct/test_phage_sentinel.py::test_paginated_views_enforce_limit_and_slices PASSED [ 93%]
-tests/direct/test_phage_sentinel.py::test_quarantine_interop_and_expiration_warp PASSED [ 96%]
-tests/direct/test_phage_sentinel.py::test_recover_agent_unregistered_rejected PASSED [100%]
+tests/direct/test_phage_sentinel.py::test_initial_registry_state PASSED  [  2%]
+tests/direct/test_phage_sentinel.py::test_fund_bounty_pool_success PASSED [  5%]
+tests/direct/test_phage_sentinel.py::test_fund_bounty_pool_zero_rejected PASSED [  7%]
+tests/direct/test_phage_sentinel.py::test_report_pathogen_success_all_platforms PASSED [ 10%]
+tests/direct/test_phage_sentinel.py::test_report_pathogen_bond_below_minimum_rejected PASSED [ 13%]
+tests/direct/test_phage_sentinel.py::test_report_pathogen_empty_report_id_rejected PASSED [ 15%]
+tests/direct/test_phage_sentinel.py::test_report_pathogen_duplicate_report_id_rejected PASSED [ 18%]
+tests/direct/test_phage_sentinel.py::test_report_pathogen_invalid_platform_rejected PASSED [ 21%]
+tests/direct/test_phage_sentinel.py::test_fail_closed_on_http_500_transient PASSED [ 23%]
+tests/direct/test_phage_sentinel.py::test_fail_closed_on_http_429_transient PASSED [ 26%]
+tests/direct/test_phage_sentinel.py::test_fail_closed_on_empty_body_transient PASSED [ 28%]
+tests/direct/test_phage_sentinel.py::test_url_validation_rejects_full_http_url PASSED [ 31%]
+tests/direct/test_phage_sentinel.py::test_url_validation_rejects_invalid_github_format PASSED [ 34%]
+tests/direct/test_phage_sentinel.py::test_url_validation_accepts_valid_github PASSED [ 36%]
+tests/direct/test_phage_sentinel.py::test_consensus_binding_tier_critical_allocates_100pct PASSED [ 39%]
+tests/direct/test_phage_sentinel.py::test_consensus_binding_tier_suspicious_24h_zero_payout PASSED [ 42%]
+tests/direct/test_phage_sentinel.py::test_consensus_binding_tier_benign_zero_quarantine_zero_payout PASSED [ 44%]
+tests/direct/test_phage_sentinel.py::test_adversarial_slashing_fabricated_attack_slashes_bond PASSED [ 47%]
+tests/direct/test_phage_sentinel.py::test_adversarial_slashing_http_404_resolves_fabricated PASSED [ 50%]
+tests/direct/test_phage_sentinel.py::test_solvency_invariant_multi_cycle PASSED [ 52%]
+tests/direct/test_phage_sentinel.py::test_withdraw_zero_balance_rejected PASSED [ 55%]
+tests/direct/test_phage_sentinel.py::test_replay_rejection_same_incident_digest_reverts PASSED [ 57%]
+tests/direct/test_phage_sentinel.py::test_replay_protection_cross_wallet_rejection PASSED [ 60%]
+tests/direct/test_phage_sentinel.py::test_replay_rejection_different_trace_allowed PASSED [ 63%]
+tests/direct/test_phage_sentinel.py::test_appeal_quarantine_success_lifts_quarantine PASSED [ 65%]
+tests/direct/test_phage_sentinel.py::test_appeal_quarantine_failed_slashes_appeal_bond PASSED [ 68%]
+tests/direct/test_phage_sentinel.py::test_escalated_reporter_bond_after_defended_appeal PASSED [ 71%]
+tests/direct/test_phage_sentinel.py::test_bounty_farming_target_cooldown_and_pool_scaling PASSED [ 73%]
+tests/direct/test_phage_sentinel.py::test_paginated_views_enforce_limit_and_slices PASSED [ 76%]
+tests/direct/test_phage_sentinel.py::test_quarantine_interop_and_expiration_warp PASSED [ 78%]
+tests/direct/test_phage_sentinel.py::test_recover_agent_unregistered_rejected PASSED [ 81%]
+tests/direct/test_phage_sentinel.py::test_pending_replay_race_condition_rejection PASSED [ 84%]
+tests/direct/test_phage_sentinel.py::test_appeal_slashing_with_bounty_reclaim_and_reserve_slashing PASSED [ 86%]
+tests/direct/test_phage_sentinel.py::test_appeal_slashing_partial_claimable_resilience PASSED [ 89%]
+tests/direct/test_phage_sentinel.py::test_platform_scoped_replay_allows_cross_platform_same_trace PASSED [ 92%]
+tests/direct/test_phage_sentinel.py::test_antibody_lifecycle_revocation_on_upheld_appeal PASSED [ 94%]
+tests/direct/test_phage_sentinel.py::test_pre_quantize_telemetry_falsy_string_evaluates_nominal PASSED [ 97%]
+tests/direct/test_phage_sentinel.py::test_pre_quantize_telemetry_truthy_string_evaluates_critical PASSED [100%]
 
-============================== 34 passed in 0.80s ==============================
+============================== 38 passed in 1.20s ==============================
 ```
 
 ---
@@ -200,15 +212,15 @@ tests/direct/test_phage_sentinel.py::test_recover_agent_unregistered_rejected PA
 - Network: GenLayer StudioNet
 - Chain ID: `61999`
 - RPC URL: `https://studio.genlayer.com/api`
-- Contract Address: `0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c`
-- Deployment Transaction Hash: `0xc3784ed8371ed45b70aae01a53039946728049e355abd0e270575f0bb4422581`
-- Explorer URL: [https://explorer-studio.genlayer.com/address/0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c](https://explorer-studio.genlayer.com/address/0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c)
+- Contract Address: `0x2f9c7d397734Cb7861522C1A16a17EB356c2B524`
+- Deployment Transaction Hash: `0x838d5ca9959c16431ec120e309663682a74d57301d9fc53d2519749788f9308f`
+- Explorer URL: [https://explorer-studio.genlayer.com/address/0x2f9c7d397734Cb7861522C1A16a17EB356c2B524](https://explorer-studio.genlayer.com/address/0x2f9c7d397734Cb7861522C1A16a17EB356c2B524)
 - Deployer Address: `0x947a25754b08d09b770a77f159b92ecc1e83d9b3`
 - Status: `ACCEPTED` (Majority Validator Quorum AGREE)
 
 ### Live RPC Verification
 ```bash
-genlayer call 0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c get_registry_overview --rpc https://studio.genlayer.com/api
+genlayer call 0x2f9c7d397734Cb7861522C1A16a17EB356c2B524 get_registry_overview --rpc https://studio.genlayer.com/api
 ```
 
 Live RPC Response:

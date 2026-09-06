@@ -868,3 +868,190 @@ def test_appeal_slashing_partial_claimable_resilience(
     assert contract.get_claimable_balance(direct_alice) == "0"
     overview = contract.get_registry_overview()
     assert int(overview["protocol_reserves_atto"]) == MIN_REPORTER_BOND
+
+
+# ---------------------------------------------------------------------------
+# 14. Enterprise Hardening (Platform Replay, Antibody Revocation & Anti-Spoofing)
+# ---------------------------------------------------------------------------
+def test_platform_scoped_replay_allows_cross_platform_same_trace(
+    direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
+):
+    """Identical trace IDs on distinct platforms must NOT collide or trigger false replay rejection."""
+    contract = direct_deploy(CONTRACT_PATH)
+
+    # 1. Alice submits trace "trace-shared-1001" on AGENT_RPC
+    _report_pathogen(
+        contract,
+        direct_vm,
+        direct_alice,
+        direct_bob,
+        "rep-platform-1",
+        "AGENT_RPC",
+        "trace-shared-1001",
+    )
+    rep1 = contract.get_report("rep-platform-1")
+    assert rep1["status"] == "PENDING"
+
+    # 2. Charlie submits same trace "trace-shared-1001" on TX_TRACE for same target Bob
+    # Because platform is different, this must SUCCEED without replay rejection!
+    _report_pathogen(
+        contract,
+        direct_vm,
+        direct_charlie,
+        direct_bob,
+        "rep-platform-2",
+        "TX_TRACE",
+        "trace-shared-1001",
+    )
+    rep2 = contract.get_report("rep-platform-2")
+    assert rep2["status"] == "PENDING"
+
+    # 3. But submitting same trace on AGENT_RPC again must be rejected as pending replay
+    with pytest.raises(Exception) as exc:
+        _report_pathogen(
+            contract,
+            direct_vm,
+            direct_alice,
+            direct_bob,
+            "rep-platform-3",
+            "AGENT_RPC",
+            "trace-shared-1001",
+        )
+    assert "already submitted or evaluated (replay rejected)" in str(exc.value)
+
+
+def test_antibody_lifecycle_revocation_on_upheld_appeal(
+    direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
+):
+    """When an appeal is upheld, the associated antibody signature must be marked inactive (revoked)."""
+    contract = direct_deploy(CONTRACT_PATH)
+
+    # Fund bounty pool
+    direct_vm.sender = direct_alice
+    direct_vm.value = 10 * ATTO
+    contract.fund_bounty_pool()
+
+    # Alice reports Bob for critical threat
+    _report_pathogen(
+        contract,
+        direct_vm,
+        direct_alice,
+        direct_bob,
+        "rep-ab-1",
+        "AGENT_RPC",
+        "trace-ab-critical",
+    )
+    mock_telemetry_success(direct_vm, {"exploit_detected": True, "anomaly_score": 90})
+    mock_pathogen_verdict(
+        direct_vm,
+        tier="TIER_PATHOGEN_CRITICAL",
+        pathogen_type="INDIRECT_PROMPT_INJECTION",
+        rationale="Severe memory injection detected.",
+    )
+    contract.evaluate_pathogen("rep-ab-1")
+
+    # Verify quarantine and active antibody recorded
+    assert contract.is_quarantined(direct_bob) is True
+    q_info = contract.get_quarantine_info(direct_bob)
+    assert q_info["is_active"] is True
+    ab_hash = q_info["antibody_hash"]
+    assert len(ab_hash) == 64
+
+    ab = contract.get_antibody(ab_hash)
+    assert ab["is_active"] is True
+    assert ab["pathogen_type"] == "INDIRECT_PROMPT_INJECTION"
+
+    # Also check list_antibodies_paginated
+    paginated_abs = contract.list_antibodies_paginated(0, 10)
+    assert len(paginated_abs) == 1
+    assert paginated_abs[0]["is_active"] is True
+
+    # Bob / Charlie appeals with benign telemetry proof
+    direct_vm.sender = direct_charlie
+    direct_vm.value = APPEAL_BOND
+    mock_telemetry_success(direct_vm, {"anomaly_score": 0})
+    mock_appeal_verdict(
+        direct_vm,
+        tier="TIER_BENIGN_NOISE",
+        rationale="Proof demonstrates nominal operation without compromise.",
+    )
+    contract.appeal_quarantine(direct_bob, "proof-ab-appeal", "AGENT_RPC")
+
+    # Quarantine is lifted
+    assert contract.is_quarantined(direct_bob) is False
+
+    # Antibody must now be REVOKED (is_active = False)
+    ab_revoked = contract.get_antibody(ab_hash)
+    assert ab_revoked["is_active"] is False
+
+    paginated_revoked = contract.list_antibodies_paginated(0, 10)
+    assert len(paginated_revoked) == 1
+    assert paginated_revoked[0]["is_active"] is False
+
+
+def test_pre_quantize_telemetry_falsy_string_evaluates_nominal(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    """String 'false'/'0' must not be interpreted as truthy exploit indicators in consensus."""
+    import json
+    contract = direct_deploy(CONTRACT_PATH)
+
+    # Telemetry with string 'false' and low anomaly score
+    # Must yield 'BENIGN_NOMINAL_INDICATED' in prompt, not 'CRITICAL_PATHOGEN_INDICATED'
+    _report_pathogen(
+        contract,
+        direct_vm,
+        direct_alice,
+        direct_bob,
+        "rep-spoof-1",
+        "AGENT_RPC",
+        "trace-spoof-1",
+    )
+    mock_telemetry_success(direct_vm, {"exploit_detected": "false", "anomaly_score": 15})
+    direct_vm.mock_llm(
+        r".*Computed Threat Indicator: BENIGN_NOMINAL_INDICATED.*",
+        json.dumps({
+            "tier": "TIER_BENIGN_NOISE",
+            "pathogen_type": "NOMINAL",
+            "rationale": "String false was correctly identified as falsy.",
+        }),
+    )
+    contract.evaluate_pathogen("rep-spoof-1")
+
+    rep1 = contract.get_report("rep-spoof-1")
+    assert rep1["tier"] == "TIER_BENIGN_NOISE"
+    assert contract.is_quarantined(direct_bob) is False
+
+
+def test_pre_quantize_telemetry_truthy_string_evaluates_critical(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    """String 'true'/'1' must be interpreted as truthy exploit indicators in consensus."""
+    import json
+    contract = direct_deploy(CONTRACT_PATH)
+
+    # Telemetry with string 'true' and low anomaly score
+    # Must yield 'CRITICAL_PATHOGEN_INDICATED' in prompt
+    _report_pathogen(
+        contract,
+        direct_vm,
+        direct_alice,
+        direct_bob,
+        "rep-spoof-2",
+        "AGENT_RPC",
+        "trace-spoof-2",
+    )
+    mock_telemetry_success(direct_vm, {"exploit_detected": "true", "anomaly_score": 10})
+    direct_vm.mock_llm(
+        r".*Computed Threat Indicator: CRITICAL_PATHOGEN_INDICATED.*",
+        json.dumps({
+            "tier": "TIER_PATHOGEN_CRITICAL",
+            "pathogen_type": "PROMPT_INJECTION",
+            "rationale": "String true correctly classified as critical exploit.",
+        }),
+    )
+    contract.evaluate_pathogen("rep-spoof-2")
+
+    rep2 = contract.get_report("rep-spoof-2")
+    assert rep2["tier"] == "TIER_PATHOGEN_CRITICAL"
+    assert contract.is_quarantined(direct_bob) is True

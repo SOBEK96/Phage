@@ -118,6 +118,7 @@ class QuarantineRecord:
     reason_tier: str
     last_report_id: str
     total_quarantines: u256
+    antibody_hash: str
 
 
 @allow_storage
@@ -129,6 +130,7 @@ class AntibodySignature:
     pathogen_type: str
     recorded_at_utc: u256
     reporter: Address
+    is_active: bool
 
 
 @allow_storage
@@ -249,7 +251,7 @@ class PhageSentinel(gl.Contract):
         target_hex = target_addr.as_hex
 
         # Cross-Wallet Deterministic Replay Protection checked upfront
-        incident_digest = _compute_digest(target_hex, trace_id)
+        incident_digest = _compute_digest(platform, target_hex, trace_id)
         if incident_digest in self.evaluated_digests or self.pending_digests.get(incident_digest, False):
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} pathogen incident trace already submitted or evaluated (replay rejected)"
@@ -303,7 +305,7 @@ class PhageSentinel(gl.Contract):
             )
 
         # Deterministic Replay Protection strictly on target + trace
-        digest = _compute_digest(rep.target_agent.as_hex, rep.trace_id)
+        digest = _compute_digest(rep.platform, rep.target_agent.as_hex, rep.trace_id)
         if digest in self.evaluated_digests:
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} pathogen incident trace already evaluated (replay rejected)"
@@ -375,6 +377,24 @@ class PhageSentinel(gl.Contract):
                 self.last_bounty_claimed_at[target_hex] = u256(now_ts)
                 _credit_claimable(self.claimable_balances, reporter_hex, payout_atto)
 
+        # Handle Antibody Recording for Critical Threats
+        antibody_sig_hash = ""
+        if tier == TIER_PATHOGEN_CRITICAL:
+            sig_raw = f"{target_hex}:{pathogen_type}:{trace_id}"
+            antibody_sig_hash = hashlib.sha256(sig_raw.encode("utf-8")).hexdigest()
+            antibody = AntibodySignature(
+                signature_hash=antibody_sig_hash,
+                target_agent=target_addr,
+                platform=platform,
+                pathogen_type=pathogen_type,
+                recorded_at_utc=u256(now_ts),
+                reporter=rep.reporter,
+                is_active=True,
+            )
+            self.antibodies[antibody_sig_hash] = antibody
+            if antibody_sig_hash not in self.antibody_hashes:
+                self.antibody_hashes.append(antibody_sig_hash)
+
         # Handle Quarantine Enforcement
         if quarantine_duration > 0:
             until_ts = u256(now_ts + quarantine_duration)
@@ -385,6 +405,7 @@ class PhageSentinel(gl.Contract):
                 q.reason_tier = tier
                 q.last_report_id = report_id
                 q.total_quarantines = u256(int(q.total_quarantines) + 1)
+                q.antibody_hash = antibody_sig_hash
                 self.quarantines[target_hex] = q
             else:
                 q = QuarantineRecord(
@@ -394,25 +415,10 @@ class PhageSentinel(gl.Contract):
                     reason_tier=tier,
                     last_report_id=report_id,
                     total_quarantines=u256(1),
+                    antibody_hash=antibody_sig_hash,
                 )
                 self.quarantines[target_hex] = q
                 self.quarantined_agents.append(target_hex)
-
-        # Handle Antibody Recording for Critical Threats
-        if tier == TIER_PATHOGEN_CRITICAL:
-            sig_raw = f"{target_hex}:{pathogen_type}:{trace_id}"
-            sig_hash = hashlib.sha256(sig_raw.encode("utf-8")).hexdigest()
-            if sig_hash not in self.antibodies:
-                antibody = AntibodySignature(
-                    signature_hash=sig_hash,
-                    target_agent=target_addr,
-                    platform=platform,
-                    pathogen_type=pathogen_type,
-                    recorded_at_utc=u256(now_ts),
-                    reporter=rep.reporter,
-                )
-                self.antibodies[sig_hash] = antibody
-                self.antibody_hashes.append(sig_hash)
 
     # ------------------------------------------------------------------
     # 4. Appeal Quarantine (Anti-Griefing & Competitor DoS Defense)
@@ -468,6 +474,13 @@ class PhageSentinel(gl.Contract):
         if tier == TIER_BENIGN_NOISE:
             # Appeal Upheld: Target confirmed benign / false positive / griefed
             q.is_active = False
+
+            # Revoke antibody signature if one was recorded for this quarantine
+            if q.antibody_hash and q.antibody_hash in self.antibodies:
+                ab = self.antibodies[q.antibody_hash]
+                ab.is_active = False
+                self.antibodies[q.antibody_hash] = ab
+
             self.quarantines[target_hex] = q
 
             # Escalate future required bond to report this target agent
@@ -798,6 +811,7 @@ class PhageSentinel(gl.Contract):
                 "reason_tier": "NONE",
                 "last_report_id": "",
                 "total_quarantines": 0,
+                "antibody_hash": "",
             }
         q = self.quarantines[target_hex]
         return {
@@ -807,6 +821,7 @@ class PhageSentinel(gl.Contract):
             "reason_tier": q.reason_tier,
             "last_report_id": q.last_report_id,
             "total_quarantines": int(q.total_quarantines),
+            "antibody_hash": q.antibody_hash,
         }
 
     @gl.public.view
@@ -821,6 +836,7 @@ class PhageSentinel(gl.Contract):
             "pathogen_type": ab.pathogen_type,
             "recorded_at_utc": int(ab.recorded_at_utc),
             "reporter": ab.reporter.as_hex,
+            "is_active": ab.is_active,
         }
 
     @gl.public.view
@@ -980,9 +996,9 @@ def _build_platform_url(platform: str, trace_id: str) -> str:
     return template.format(trace_id=trace_id)
 
 
-def _compute_digest(target_hex: str, trace_id: str) -> str:
-    """Deterministic incident digest keyed strictly on target agent and trace."""
-    raw = f"{target_hex}\x00{trace_id}"
+def _compute_digest(platform: str, target_hex: str, trace_id: str) -> str:
+    """Deterministic incident digest keyed strictly on platform, target agent, and trace."""
+    raw = f"{platform}\x00{target_hex}\x00{trace_id}"
     return hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()
 
 
@@ -995,6 +1011,16 @@ def _get_claimable(claimable_balances, key: str) -> int:
 def _credit_claimable(claimable_balances, key: str, amount: int) -> None:
     current = _get_claimable(claimable_balances, key)
     claimable_balances[key] = u256(current + amount)
+
+
+def _is_truthy(val) -> bool:
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return val > 0
+    if isinstance(val, str):
+        return val.strip().lower() in ("true", "1", "yes")
+    return False
 
 
 def _pre_quantize_telemetry(body: str) -> tuple[str, int]:
@@ -1013,7 +1039,10 @@ def _pre_quantize_telemetry(body: str) -> tuple[str, int]:
     except Exception:
         score = 0
 
-    exploit_detected = bool(data.get("exploit_detected", False) or data.get("jailbreak", False))
+    raw_exploit = data.get("exploit_detected", False)
+    raw_jailbreak = data.get("jailbreak", False)
+    exploit_detected = _is_truthy(raw_exploit) or _is_truthy(raw_jailbreak)
+
     if exploit_detected or score >= 80:
         return ("CRITICAL_PATHOGEN_INDICATED", score)
     elif score >= 40:
