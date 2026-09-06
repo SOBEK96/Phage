@@ -711,3 +711,160 @@ def test_recover_agent_unregistered_rejected(direct_vm, direct_deploy, direct_al
     with pytest.raises(Exception) as exc:
         contract.recover_agent(direct_alice)
     assert "not registered in quarantine registry" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# 13. Critical Patch Invariants (Pending Replay Race & Appeal Slashing)
+# ---------------------------------------------------------------------------
+def test_pending_replay_race_condition_rejection(
+    direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
+):
+    contract = direct_deploy(CONTRACT_PATH)
+
+    # Alice submits a pathogen report; it remains in REPORT_PENDING state
+    _report_pathogen(
+        contract,
+        direct_vm,
+        direct_alice,
+        direct_bob,
+        "rep-race-1",
+        "AGENT_RPC",
+        "trace-race-target",
+    )
+    rep1 = contract.get_report("rep-race-1")
+    assert rep1["status"] == "PENDING"
+
+    # Charlie attempts to submit the identical target and trace BEFORE Alice evaluates
+    # This MUST revert upfront so Charlie does not get his bond locked permanently!
+    with pytest.raises(Exception) as exc:
+        _report_pathogen(
+            contract,
+            direct_vm,
+            direct_charlie,
+            direct_bob,
+            "rep-race-2",
+            "AGENT_RPC",
+            "trace-race-target",
+        )
+    assert "already submitted or evaluated (replay rejected)" in str(exc.value)
+
+    # Now Alice's report evaluates
+    mock_telemetry_success(direct_vm, {"anomaly_score": 10})
+    mock_pathogen_verdict(direct_vm, tier="TIER_BENIGN_NOISE")
+    contract.evaluate_pathogen("rep-race-1")
+
+    rep1_resolved = contract.get_report("rep-race-1")
+    assert rep1_resolved["status"] == "RESOLVED"
+
+    # Subsequent submission after evaluation also continues to be rejected
+    with pytest.raises(Exception) as exc2:
+        _report_pathogen(
+            contract,
+            direct_vm,
+            direct_charlie,
+            direct_bob,
+            "rep-race-3",
+            "AGENT_RPC",
+            "trace-race-target",
+        )
+    assert "already submitted or evaluated (replay rejected)" in str(exc2.value)
+
+
+def test_appeal_slashing_with_bounty_reclaim_and_reserve_slashing(
+    direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
+):
+    contract = direct_deploy(CONTRACT_PATH)
+
+    # 1. Fund bounty pool with 10 GEN
+    direct_vm.sender = direct_alice
+    direct_vm.value = 10 * ATTO
+    contract.fund_bounty_pool()
+
+    # 2. Alice fabricates a false critical report on Bob
+    _report_pathogen(
+        contract,
+        direct_vm,
+        direct_alice,
+        direct_bob,
+        "rep-reclaim-1",
+        "AGENT_RPC",
+        "trace-reclaim-1",
+    )
+    mock_telemetry_success(direct_vm, {"exploit_detected": True, "anomaly_score": 95})
+    mock_pathogen_verdict(direct_vm, tier="TIER_PATHOGEN_CRITICAL")
+    contract.evaluate_pathogen("rep-reclaim-1")
+
+    # Bounty pool was decremented by 1 GEN (payout = min(1 GEN, 10 GEN // 10) = 1 GEN)
+    overview1 = contract.get_registry_overview()
+    assert int(overview1["bounty_pool_atto"]) == 9 * ATTO
+
+    # Alice has 1.1 GEN claimable (0.1 GEN bond + 1.0 GEN bounty)
+    alice_claimable = int(contract.get_claimable_balance(direct_alice))
+    assert alice_claimable == MIN_REPORTER_BOND + BASE_BOUNTY_REWARD
+
+    # 3. Charlie appeals on Bob's behalf with 0.2 GEN appeal bond
+    direct_vm.sender = direct_charlie
+    direct_vm.value = APPEAL_BOND
+    mock_telemetry_success(direct_vm, {"proof": "healthy execution logs", "anomaly_score": 0})
+    mock_appeal_verdict(direct_vm, tier="TIER_BENIGN_NOISE", rationale="Target is completely nominal.")
+    contract.appeal_quarantine(direct_bob, "appeal-proof-reclaim-1", "AGENT_RPC")
+
+    # Quarantine is lifted
+    assert contract.is_quarantined(direct_bob) is False
+
+    # Charlie gets his 0.2 GEN appeal bond refunded
+    assert contract.get_claimable_balance(direct_charlie) == str(APPEAL_BOND)
+
+    # 4. Critical Invariant: Alice's bond + payout (1.1 GEN) is slashed:
+    # - 1.0 GEN (payout) is restored back into bounty_pool_atto!
+    # - 0.1 GEN (bond) is slashed into protocol_reserves_atto!
+    # - Alice's claimable balance is reduced to 0!
+    assert contract.get_claimable_balance(direct_alice) == "0"
+
+    overview2 = contract.get_registry_overview()
+    assert int(overview2["bounty_pool_atto"]) == 10 * ATTO  # Fully restored!
+    assert int(overview2["protocol_reserves_atto"]) == MIN_REPORTER_BOND  # Bond slashed into reserves!
+
+    # Solvency invariant holds 100%
+    deposited = int(overview2["total_deposited_atto"])
+    bounty_pool = int(overview2["bounty_pool_atto"])
+    reserves = int(overview2["protocol_reserves_atto"])
+    claimed = int(overview2["total_claimed_atto"])
+    charlie_claimable = int(contract.get_claimable_balance(direct_charlie))
+
+    assert deposited == bounty_pool + reserves + charlie_claimable + claimed
+
+
+def test_appeal_slashing_partial_claimable_resilience(
+    direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
+):
+    contract = direct_deploy(CONTRACT_PATH)
+
+    # Alice falsely reports Bob for suspicious anomaly (0 bounty, 0.1 GEN bond refunded)
+    _report_pathogen(
+        contract,
+        direct_vm,
+        direct_alice,
+        direct_bob,
+        "rep-partial-1",
+        "AGENT_RPC",
+        "trace-partial-1",
+    )
+    mock_telemetry_success(direct_vm, {"anomaly_score": 50})
+    mock_pathogen_verdict(direct_vm, tier="TIER_SUSPICIOUS_ANOMALY")
+    contract.evaluate_pathogen("rep-partial-1")
+
+    # Alice has only 0.1 GEN claimable (bond refunded, payout was 0)
+    assert contract.get_claimable_balance(direct_alice) == str(MIN_REPORTER_BOND)
+
+    # Charlie successfully appeals
+    direct_vm.sender = direct_charlie
+    direct_vm.value = APPEAL_BOND
+    mock_telemetry_success(direct_vm, {"anomaly_score": 0})
+    mock_appeal_verdict(direct_vm, tier="TIER_BENIGN_NOISE")
+    contract.appeal_quarantine(direct_bob, "proof-partial-1", "AGENT_RPC")
+
+    # Alice's 0.1 GEN is slashed into reserves without underflow or error
+    assert contract.get_claimable_balance(direct_alice) == "0"
+    overview = contract.get_registry_overview()
+    assert int(overview["protocol_reserves_atto"]) == MIN_REPORTER_BOND

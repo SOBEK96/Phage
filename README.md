@@ -3,9 +3,9 @@
 Target Track: Track 6 -- Autonomous Protocols
 Network: GenLayer StudioNet (Chain ID: 61999)
 Target Contract Path: contracts/phage_sentinel.py
-Contract Address: 0xA1fb41605c3fff9d00bABC08196E3Ab14d530923
-Deployment Tx Hash: 0x33670260a625202fbb41169ea2eb0817a7fffdb95e1dab35dc41b76a9d00130c
-Explorer URL: https://explorer-studio.genlayer.com/address/0xA1fb41605c3fff9d00bABC08196E3Ab14d530923
+Contract Address: 0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c
+Deployment Tx Hash: 0xc3784ed8371ed45b70aae01a53039946728049e355abd0e270575f0bb4422581
+Explorer URL: https://explorer-studio.genlayer.com/address/0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c
 
 ---
 
@@ -155,7 +155,7 @@ Phage features a standalone, in-memory direct test suite using `genlayer-test` e
 .venv/bin/pytest tests/direct/ -v
 ```
 
-### Test Suite Results (31 / 31 Passed in 0.80s)
+### Test Suite Results (34 / 34 Passed in 0.80s)
 ```text
 tests/direct/test_phage_sentinel.py::test_initial_registry_state PASSED [ 3%]
 tests/direct/test_phage_sentinel.py::test_fund_bounty_pool_success PASSED [ 6%]
@@ -189,7 +189,7 @@ tests/direct/test_phage_sentinel.py::test_paginated_views_enforce_limit_and_slic
 tests/direct/test_phage_sentinel.py::test_quarantine_interop_and_expiration_warp PASSED [ 96%]
 tests/direct/test_phage_sentinel.py::test_recover_agent_unregistered_rejected PASSED [100%]
 
-============================== 31 passed in 0.80s ==============================
+============================== 34 passed in 0.80s ==============================
 ```
 
 ---
@@ -200,15 +200,15 @@ tests/direct/test_phage_sentinel.py::test_recover_agent_unregistered_rejected PA
 - Network: GenLayer StudioNet
 - Chain ID: `61999`
 - RPC URL: `https://studio.genlayer.com/api`
-- Contract Address: `0xA1fb41605c3fff9d00bABC08196E3Ab14d530923`
-- Deployment Transaction Hash: `0x33670260a625202fbb41169ea2eb0817a7fffdb95e1dab35dc41b76a9d00130c`
-- Explorer URL: [https://explorer-studio.genlayer.com/address/0xA1fb41605c3fff9d00bABC08196E3Ab14d530923](https://explorer-studio.genlayer.com/address/0xA1fb41605c3fff9d00bABC08196E3Ab14d530923)
+- Contract Address: `0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c`
+- Deployment Transaction Hash: `0xc3784ed8371ed45b70aae01a53039946728049e355abd0e270575f0bb4422581`
+- Explorer URL: [https://explorer-studio.genlayer.com/address/0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c](https://explorer-studio.genlayer.com/address/0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c)
 - Deployer Address: `0x947a25754b08d09b770a77f159b92ecc1e83d9b3`
 - Status: `ACCEPTED` (Majority Validator Quorum AGREE)
 
 ### Live RPC Verification
 ```bash
-genlayer call 0xA1fb41605c3fff9d00bABC08196E3Ab14d530923 get_registry_overview --rpc https://studio.genlayer.com/api
+genlayer call 0xed24C4ac42c6dF40D6180110F90DC3934AC4A62c get_registry_overview --rpc https://studio.genlayer.com/api
 ```
 
 Live RPC Response:

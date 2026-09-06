@@ -183,6 +183,7 @@ class PhageSentinel(gl.Contract):
 
     # Replay Protection: sha256(target_hex + "\x00" + trace_id) -> True
     evaluated_digests: TreeMap[str, bool]
+    pending_digests: TreeMap[str, bool]
 
     # Anti-Griefing: Target -> Defended Appeals Count (escalates required bond)
     defended_appeals: TreeMap[str, u256]
@@ -249,9 +250,9 @@ class PhageSentinel(gl.Contract):
 
         # Cross-Wallet Deterministic Replay Protection checked upfront
         incident_digest = _compute_digest(target_hex, trace_id)
-        if incident_digest in self.evaluated_digests:
+        if incident_digest in self.evaluated_digests or self.pending_digests.get(incident_digest, False):
             raise gl.vm.UserError(
-                f"{ERROR_EXPECTED} pathogen incident trace already evaluated (replay rejected)"
+                f"{ERROR_EXPECTED} pathogen incident trace already submitted or evaluated (replay rejected)"
             )
 
         # Anti-Griefing: escalated bond requirement if target successfully defended appeals
@@ -261,6 +262,9 @@ class PhageSentinel(gl.Contract):
             raise gl.vm.UserError(
                 f"{ERROR_EXPECTED} required reporter bond is {required_bond} atto (minimum reporter bond is 0.1 GEN)"
             )
+
+        # Effects: register pending digest
+        self.pending_digests[incident_digest] = True
 
         reporter = gl.message.sender_address
         now_ts = u256(int(datetime.datetime.now().timestamp()))
@@ -351,6 +355,7 @@ class PhageSentinel(gl.Contract):
         payout_atto = min(available_bounty, intended_payout)
 
         # --- CEI State Mutations ---
+        self.pending_digests[digest] = False
         self.evaluated_digests[digest] = True
         rep.status = REPORT_RESOLVED
         rep.tier = tier
@@ -472,15 +477,26 @@ class PhageSentinel(gl.Contract):
             # Refund appeal bond to appellant
             _credit_claimable(self.claimable_balances, appellant_hex, bond)
 
-            # Penalize original malicious reporter if unwithdrawn bond remains in claimable
+            # Penalize original malicious reporter and reclaim any leaked bounty
             if q.last_report_id in self.reports:
                 orig_rep = self.reports[q.last_report_id]
                 orig_reporter_hex = orig_rep.reporter.as_hex
                 orig_bond = int(orig_rep.bond_atto)
+                orig_payout = int(orig_rep.payout_atto)
+                total_reclaimable = orig_bond + orig_payout
+
                 current_claimable = _get_claimable(self.claimable_balances, orig_reporter_hex)
-                if current_claimable >= orig_bond:
-                    self.claimable_balances[orig_reporter_hex] = u256(current_claimable - orig_bond)
-                    self.protocol_reserves_atto = u256(int(self.protocol_reserves_atto) + orig_bond)
+                slash_amount = min(current_claimable, total_reclaimable)
+
+                if slash_amount > 0:
+                    self.claimable_balances[orig_reporter_hex] = u256(current_claimable - slash_amount)
+                    reclaim_to_bounty = min(slash_amount, orig_payout)
+                    slash_to_reserves = slash_amount - reclaim_to_bounty
+
+                    if reclaim_to_bounty > 0:
+                        self.bounty_pool_atto = u256(int(self.bounty_pool_atto) + reclaim_to_bounty)
+                    if slash_to_reserves > 0:
+                        self.protocol_reserves_atto = u256(int(self.protocol_reserves_atto) + slash_to_reserves)
 
             status = APPEAL_UPHELD
         else:
