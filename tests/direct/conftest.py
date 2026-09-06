@@ -3,9 +3,11 @@ import pytest
 
 CONTRACT_PATH = "contracts/phage_sentinel.py"
 PROMPT_PATTERN = r".*Security Triage Sentinel.*"
+APPEAL_PROMPT_PATTERN = r".*Appeals Arbiter.*"
 
 ATTO = 10**18
 MIN_REPORTER_BOND = ATTO // 10
+APPEAL_BOND = 2 * MIN_REPORTER_BOND
 BASE_BOUNTY_REWARD = 1 * ATTO
 
 
@@ -40,6 +42,20 @@ def mock_pathogen_verdict(
         json.dumps({
             "tier": tier,
             "pathogen_type": pathogen_type,
+            "rationale": rationale,
+        }),
+    )
+
+
+def mock_appeal_verdict(
+    direct_vm,
+    tier: str = "TIER_BENIGN_NOISE",
+    rationale: str = "Target proof verifies completely benign operation.",
+):
+    direct_vm.mock_llm(
+        APPEAL_PROMPT_PATTERN,
+        json.dumps({
+            "tier": tier,
             "rationale": rationale,
         }),
     )
